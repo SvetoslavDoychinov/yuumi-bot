@@ -1,0 +1,7 @@
+requests~=2.31.0
+psutil
+urllib3~=2.2.1
+pyautogui
+pywin32
+mouse
+keyboard
