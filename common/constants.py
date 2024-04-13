@@ -1,4 +1,5 @@
 from enum import Enum
+from types import DynamicClassAttribute
 
 
 class LobbyTypes(Enum):
@@ -64,8 +65,8 @@ class SummonerSpells(Enum):
 
 class MapLocationRatios(Enum):
     """Fraction of LoL window size used to calculate coordinates on the minimap"""
-    ORDER = (0.97, 0.76)  # for ORDER nexus
-    CHAOS = (0.82, 0.94)  # for CHAOS nexus
+    ORDER = (0.97, 0.76)  # for ORDER enemy nexus
+    CHAOS = (0.82, 0.94)  # for CHAOS enemy nexus
     CENTER = (0.5, 0.5)
     SHOP_ITEM_BUTTON = (0.3084, 0.5096)
     SHOP_PURCHASE_ITEM_BUTTON = (0.7019, 0.9450)
@@ -73,9 +74,15 @@ class MapLocationRatios(Enum):
 
 class Items(Enum):
     """Enum containing items with their prices"""
+    Faerie_Charm = 250
     World_Atlas = 400
-    Dream_Maker = 400
+    Dream_Maker = 401
+    Amplifying_Tome = 402
     Moonstone_Renewer = 2200
     Ardent_Censer = 2300
-    Staff_of_Flowing_Water = 2300
-    Morellonomicon = 2200
+    Staff_of_Flowing_Water = 2301  # Inaccurate prices because same values call wrong members is how Enum works
+    Morellonomicon = 2201
+
+    @DynamicClassAttribute
+    def name(self):
+        return super(Items, self).name.replace("_", " ")

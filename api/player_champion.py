@@ -1,11 +1,12 @@
 # https://developer.riotgames.com/docs/lol#game-client-api_live-client-data-api
 import logging
+import random
 from time import sleep
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
 from common.constants import MapLocationRatios, Items
 from common.request_api import RequestAPI
-from common.utils import is_process_running, run_process
+from common.utils import is_process_running
 from common.window_manager import WindowManager
 
 
@@ -16,8 +17,10 @@ class PlayerChampion:
         self.logger = logging.getLogger(__name__)
         self.window_name = "League of Legends (TM) Client"
         self.process_name = "League of Legends.exe"
-        self.items = 0
-        self.current_gold = None
+        self.current_gold = 0
+        self.max_hp = 0
+        self.current_hp = 0
+        self.item = 0
         self.game_in_progress = False
         self.side = None
         self.summoner_name = None
@@ -26,21 +29,21 @@ class PlayerChampion:
         self._request_api = RequestAPI("https", "127.0.0.1", "2999")
 
     def update_player_data(self) -> None:
-        """Update all object attributes with data from game if game not ended else kill process"""
+        """Update all object attributes with data from game if game not ended"""
         self.set_game_events_data()
         if self.game_in_progress:
-            self.set_gold_n_summoner_name()
+            self.set_active_player_data()
             self.set_player_state()
-        else:
-            run_process(process_name="taskkill", args=f'/IM "{self.process_name}" /F')
 
-    def set_gold_n_summoner_name(self) -> None:
+    def set_active_player_data(self) -> None:
         """Set summoner_name"""
         self.logger.debug("Setting player summoner name")
         if is_process_running(self.process_name):
             data = self._request_api.get(url="/liveclientdata/activeplayer").json()
             self.summoner_name = data["summonerName"].split("#")[0]  # it includes tag
             self.current_gold = data["currentGold"]
+            self.max_hp = data["championStats"]["maxHealth"]
+            self.current_hp = data["championStats"]["currentHealth"]
 
     def set_game_events_data(self) -> None:
         """Set object attributes with data from game events"""
@@ -51,6 +54,7 @@ class PlayerChampion:
                 for event in events.get("Events"):
                     if event["EventName"] == "GameEnd":
                         self.game_in_progress = False
+                        self.side = None
                         return  # game ended no reason to update anything
                     if event["EventName"] == "GameStart":
                         self.game_in_progress = True
@@ -66,12 +70,27 @@ class PlayerChampion:
                     self.is_alive = not player["isDead"]
                     sleep(player["respawnTimer"])  # will sleep if player is dead
 
+    def get_current_items(self) -> List[str]:
+        """
+        Get list of current items on champion
+        :return: current items
+        """
+        if self.side and self.game_in_progress:
+            response = self._request_api.get(f"/liveclientdata/playeritems?summonerName={self.summoner_name}").json()
+            current_items = [item["displayName"] for item in response]
+            # Support item upgrades itself causes confusion
+            if current_items and current_items[0] == "Runic Compass":
+                current_items[0] = Items.World_Atlas.name
+            self.logger.info(f"Current items {current_items}")
+            return current_items
+
     def get_player_abilities(self) -> Dict:
         """
         Get player abilities
         :return: Dict containing all abilities information
         """
-        return self._request_api.get(url="/liveclientdata/activeplayerabilities").json()
+        if self.side and self.game_in_progress:
+            return self._request_api.get(url="/liveclientdata/activeplayerabilities").json()
 
     def go_to_enemy_nexus(self) -> None:
         """Go to the enemy nexus if alive"""
@@ -82,6 +101,7 @@ class PlayerChampion:
 
     def go_to_ally(self, ally: str) -> None:
         """
+        Better use lock_on_ally + go_to_center + release_ally funcs
         Go to an allied champion
         :param ally: ally to go ot from f1-f5
         """
@@ -89,11 +109,34 @@ class PlayerChampion:
         if self.side and self.is_alive and self.game_in_progress:
             self.logger.info(f"Going to ally champion {ally}")
             self._window_manager.hold_key(ally)
-            sleep(1)
             self._window_manager.right_click(ratio=MapLocationRatios.CENTER.value)
             sleep(1)
             self._window_manager.release(ally)
-            sleep(1)
+
+    def lock_on_ally(self, ally: str):
+        """
+        Lock camera on allied champion
+        :param ally: go ot from f1-f5
+        """
+        self.update_player_data()
+        if self.side and self.is_alive and self.game_in_progress:
+            self.logger.info(f"Locking on ally champion {ally}")
+            self._window_manager.press_key(ally)
+            self._window_manager.hold_key(ally)
+
+    def go_to_center(self):
+        """Going to center of screen"""
+        self.update_player_data()
+        if self.side and self.is_alive and self.game_in_progress:
+            self.logger.info("Clicking on center of screen")
+            self._window_manager.right_click(ratio=MapLocationRatios.CENTER.value)
+
+    def release_ally(self, ally: str):
+        """Release camera on allied champion"""
+        self.update_player_data()
+        if self.side and not self.game_in_progress:
+            self.logger.info(f"Releasing ally champion {ally}")
+            self._window_manager.release(ally)
 
     def upgrade_ability(self, ability: str) -> None:
         """
@@ -121,21 +164,49 @@ class PlayerChampion:
         if self.is_alive and self.side and self.game_in_progress:
             self._window_manager.press_key("y")
 
-    def buy_items(self, item_path: Tuple[Items]) -> None:
+    def write_in_chat(self, msg: str) -> None:
+        """Write a message in game chat"""
+        self._window_manager.press_key("enter")
+        self._window_manager.write(msg)
+        self._window_manager.press_key("enter")
+        sleep(1)
+
+    def buy_items(self, item_path: Tuple[Items]) -> True:
         """
-        Buy items from item path in order if enough gold
+        Buy a random not already bought item from item path if enough gold
         :param item_path: list of Items to build
+        :return: True bought item successfully, False otherwise
+        """
+        item_to_buy = item_path[self.item]
+        prev_gold = self.current_gold
+        self.update_player_data()
+        if self.side and self.game_in_progress and self.current_gold > item_to_buy.value:
+            if item_to_buy.name in self.get_current_items():
+                self.item += 1
+                return False
+            self.logger.info(f"Buying item {item_to_buy.name}")
+            self._window_manager.press_key("p")
+            self._window_manager.press_key("ctrl+l")
+            self._window_manager.write(item_to_buy.name)
+            self._window_manager.press_key("enter")
+            self._window_manager.press_key("p")
+            sleep(1)
+            self.update_player_data()
+            if prev_gold > self.current_gold:
+                self.item += 1
+                return True
+        return False
+
+    def tactical_retreat(self, hp_to_retreat: int) -> None:
+        """
+        Retreats and recalls
+        :param hp_to_retreat: minimal fraction of max_hp to start retreating at
         """
         self.update_player_data()
-        self.logger.info("Buying item")
-        if self.side and self.game_in_progress:
-            item_to_buy = item_path[self.items]
-            if self.current_gold > item_to_buy.value:
-                self._window_manager.press_key("p")
-                self._window_manager.press_key("ctrl+l")
-                sleep(1)
-                self._window_manager.write(item_to_buy.name.replace("_", " "))
-                sleep(1)
-                self._window_manager.press_key("enter")
-                sleep(2)
-                self.items += 1
+        if self.is_alive and self.side and self.game_in_progress and \
+                self.current_hp / self.max_hp <= hp_to_retreat:
+            own_nexus = MapLocationRatios.CHAOS.value if self.side == "ORDER" else MapLocationRatios.ORDER.value
+            self._window_manager.right_click(ratio=own_nexus)
+            sleep(5)  # time to retreat
+            self.use_spell("b")
+            sleep(12)  # recall time + heal up
