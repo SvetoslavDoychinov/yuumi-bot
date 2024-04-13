@@ -4,9 +4,7 @@ This bot isn’t endorsed by Riot Games and doesn’t reflect the views or opini
 This software works with other programs/services (League of Legends) so you take full responsibility for breaking their Terms of Service and full responsibility for the accounts that you’re using with this bot and agree to use it at your own risk.
 
 ## What is this project?
-This is a personal project of mine that is still in developement. It could have undiscovered bugs and I may be adding more features going forward. Currently it contains two bots - DiscoNunu and Yuumi, but it should be easy for people familiar with python to define their own behaviour using the available code. The Yuumi bot should do the following:
-
-Create a lobby -> Select positions -> Search for game -> Accept matches -> Ban Lux -> Pick Yuumi -> Buy items -> Attach to someone(player on f4) -> Upgrade and use abilities and summoner spells. Repeat.
+This is a personal project of mine that is still in developement. It could have undiscovered bugs and I may be adding more features going forward. Currently it contains two bots - DiscoNunu and Yuumi, but it should be easy for people familiar with python to define their own behaviour using the available code.
 
 Everyone is free to do with this project as he/she pleases and I take no responsibility for how it is used.
 
